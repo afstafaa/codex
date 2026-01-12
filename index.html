@@ -43,6 +43,26 @@
         margin-bottom: 8px;
       }
 
+      .fetch-row {
+        margin-bottom: 12px;
+      }
+
+      .fetch-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+      }
+
+      input[type="text"] {
+        flex: 1;
+        min-width: 200px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #d6dbe5;
+        font-size: 1rem;
+      }
+
       textarea {
         width: 100%;
         min-height: 120px;
@@ -51,6 +71,12 @@
         border: 1px solid #d6dbe5;
         font-size: 1rem;
         resize: vertical;
+      }
+
+      .hint {
+        margin: 8px 0 0;
+        font-size: 0.9rem;
+        color: #69748a;
       }
 
       button {
@@ -66,6 +92,17 @@
 
       button:hover {
         background: #1c55cc;
+      }
+
+      button[disabled] {
+        cursor: not-allowed;
+        opacity: 0.7;
+      }
+
+      .error {
+        margin: 12px 0 0;
+        color: #b42318;
+        font-weight: 600;
       }
 
       .results {
@@ -111,8 +148,21 @@
       <p>Paste a METAR below and decode the basic weather elements.</p>
 
       <label for="metar-input">METAR</label>
+      <div class="fetch-row">
+        <div class="fetch-controls">
+          <input
+            id="station-input"
+            type="text"
+            placeholder="PANC or KJFK"
+            aria-label="Station"
+          />
+          <button id="fetch-button" type="button">Fetch METAR</button>
+        </div>
+        <p id="station-hint" class="hint" role="status" aria-live="polite"></p>
+      </div>
       <textarea id="metar-input">PANC 121653Z 14012KT 10SM SCT035 BKN070 04/M02 A3005</textarea>
       <button id="decode-button" type="button">Decode</button>
+      <p id="error-message" class="error" role="alert" aria-live="assertive"></p>
 
       <div class="results" aria-live="polite">
         <h2>Decoded Summary</h2>
@@ -134,6 +184,29 @@
       const output = document.getElementById("decoded-output");
       const button = document.getElementById("decode-button");
       const input = document.getElementById("metar-input");
+      const fetchButton = document.getElementById("fetch-button");
+      const stationInput = document.getElementById("station-input");
+      const stationHint = document.getElementById("station-hint");
+      const errorMessage = document.getElementById("error-message");
+
+      const PROXY_BASE_URL = "https://YOUR-WORKER.your-subdomain.workers.dev/";
+
+      async function fetchMetarForStation(station) {
+        const s = station.trim().toUpperCase();
+        if (!s) {
+          throw new Error("Enter a station (e.g., PANC or KJFK).");
+        }
+
+        const proxyUrl = `${PROXY_BASE_URL}?ids=${encodeURIComponent(s)}`;
+
+        const r = await fetch(proxyUrl);
+        if (!r.ok) {
+          throw new Error(`Fetch failed (${r.status})`);
+        }
+        const data = await r.json();
+
+        return data.metar;
+      }
 
       const isTimeGroup = (token) => /^\d{6}Z$/.test(token);
       const isWind = (token) => /^(\d{3}|VRB)\d{2,3}KT$/.test(token);
@@ -198,11 +271,47 @@
         });
       };
 
+      const setError = (message) => {
+        errorMessage.textContent = message;
+      };
+
+      const updateStationHint = (value) => {
+        const trimmed = value.trim();
+        if (trimmed.length === 3) {
+          stationHint.textContent = "Prefer 4-letter ICAO (e.g., PANC).";
+        } else {
+          stationHint.textContent = "";
+        }
+      };
+
       button.addEventListener("click", () => {
+        setError("");
         const decoded = decodeMetar(input.value);
         render(decoded);
       });
 
+      fetchButton.addEventListener("click", async () => {
+        setError("");
+        fetchButton.disabled = true;
+        fetchButton.textContent = "Fetching...";
+        try {
+          const metar = await fetchMetarForStation(stationInput.value);
+          input.value = metar;
+          const decoded = decodeMetar(metar);
+          render(decoded);
+        } catch (error) {
+          setError(error.message || "Unable to fetch METAR.");
+        } finally {
+          fetchButton.disabled = false;
+          fetchButton.textContent = "Fetch METAR";
+        }
+      });
+
+      stationInput.addEventListener("input", (event) => {
+        updateStationHint(event.target.value);
+      });
+
+      updateStationHint(stationInput.value);
       render(decodeMetar(input.value));
     </script>
   </body>
